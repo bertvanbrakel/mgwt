@@ -76,12 +76,40 @@ public class CellList<T> extends Widget implements HasCellSelectedHandler {
   public interface EntryTemplate {
     SafeHtml li(int idx, String classes, SafeHtml cellContents);
   }
+  
+  
+  public interface SwipeStartDetector {
+	  public boolean isSwipe(int x,int y, int deltaX, int deltaY);
+  }
 
+  public int maxSwipeY = 20;
+  public int minSwipeX = 20;
+  public int minX = 0;
+  public int maxX = -1;
+  
+  private final SwipeStartDetector SWIPE_DETECTOR_DISABLED = new SwipeStartDetector() {
+
+	@Override
+	public boolean isSwipe(int x, int y, int deltaX, int deltaY) {
+		return false;
+	}};
+		
+  private final SwipeStartDetector SWIPE_DETECTOR_DEFAULT = new SwipeStartDetector() {
+	
+	@Override
+	public boolean isSwipe(int x, int y, int deltaX, int deltaY) {
+			if (Math.abs(deltaY) > maxSwipeY || Math.abs(deltaX) < minSwipeX || x < minX || (maxX > 0 && x > maxX)) {
+				return false;
+			}
+			return true;
+	}
+  };
   protected static final EventPropagator EVENT_PROPAGATOR = GWT.create(EventPropagator.class);
 
 
   private class InternalTouchHandler implements TouchHandler {
 
+	private SwipeStartDetector swipeStartDetector = SWIPE_DETECTOR_DISABLED;
     private boolean moved;
     private int index;
     private Element node;
@@ -89,24 +117,33 @@ public class CellList<T> extends Widget implements HasCellSelectedHandler {
     private int y;
     private boolean started;
     private Element originalElement;
+	
+    private boolean inSwipe;
 
     @Override
     public void onTouchCancel(TouchCancelEvent event) {
-
+    	inSwipe = false;
     }
 
     @Override
     public void onTouchMove(TouchMoveEvent event) {
       Touch touch = event.getTouches().get(0);
-      if (Math.abs(touch.getPageX() - x) > Tap.RADIUS
-          || Math.abs(touch.getPageY() - y) > Tap.RADIUS) {
+      int deltaX = touch.getPageX() - x;
+      int deltaY = touch.getPageY() - y;
+      boolean outsideTapArea = Math.abs(deltaX) > Tap.RADIUS || Math.abs(deltaY) > Tap.RADIUS;
+      if (outsideTapArea) {
         moved = true;
         // deselect
         if (node != null) {
           node.removeClassName(CellList.this.appearance.css().selected());
           stopTimer();
         }
-
+        
+        if(inSwipe || swipeStartDetector.isSwipe(x, y, deltaX, deltaY)){
+        	//TODO:calc move amount
+        	inSwipe = true;
+        	fireSwipeAtIndex(index, originalElement,x,y,deltaX,deltaY);
+        }
       }
 
     }
@@ -122,13 +159,14 @@ public class CellList<T> extends Widget implements HasCellSelectedHandler {
       }
       node = null;
       started = false;
+      inSwipe = false;
 
     }
 
     @Override
     public void onTouchStart(TouchStartEvent event) {
       started = true;
-
+      inSwipe = false;
       x = event.getTouches().get(0).getPageX();
       y = event.getTouches().get(0).getPageY();
 
@@ -197,6 +235,8 @@ public class CellList<T> extends Widget implements HasCellSelectedHandler {
 
   protected EntryTemplate entryTemplate;
 
+private InternalTouchHandler touchHandler;
+
   /**
    * Construct a CellList
    *
@@ -220,7 +260,7 @@ public class CellList<T> extends Widget implements HasCellSelectedHandler {
     setElement(this.appearance.uiBinder().createAndBindUi(this));
     entryTemplate = this.appearance.getEntryTemplate();
 
-    InternalTouchHandler touchHandler = new InternalTouchHandler();
+    touchHandler = new InternalTouchHandler();
     impl.addTouchHandler(this, touchHandler);
   }
 
@@ -239,6 +279,24 @@ public class CellList<T> extends Widget implements HasCellSelectedHandler {
 
   public HandlerRegistration addCellSelectedHandler(CellSelectedHandler cellSelectedHandler) {
     return addHandler(cellSelectedHandler, CellSelectedEvent.getType());
+  }
+
+  public HandlerRegistration addCellSwipeHandler(CellSwipeHandler handler) {
+	  enableSwipe(true);
+	  return addHandler(handler, CellSwipeEvent.getType());
+  }
+
+  public void enableSwipe(boolean enabled){
+		if (enabled) {
+			if (touchHandler.swipeStartDetector == SWIPE_DETECTOR_DISABLED) {
+				touchHandler.swipeStartDetector = SWIPE_DETECTOR_DEFAULT;
+			}
+		} else {
+			touchHandler.swipeStartDetector = SWIPE_DETECTOR_DISABLED;
+		}
+  }
+  public void setSwipeStartDetector(SwipeStartDetector detector){
+	  touchHandler.swipeStartDetector = detector;
   }
 
   /**
@@ -343,6 +401,10 @@ public class CellList<T> extends Widget implements HasCellSelectedHandler {
 
   protected void fireSelectionAtIndex(int index, Element element) {
     EVENT_PROPAGATOR.fireEvent(this, new CellSelectedEvent(index, element));
+  }
+
+  protected void fireSwipeAtIndex(int index, Element element, int x, int y, int deltaX,int deltaY) {
+	    EVENT_PROPAGATOR.fireEvent(this, new CellSwipeEvent(index, element,x,y,deltaX,deltaY));
   }
 
   @UiFactory
