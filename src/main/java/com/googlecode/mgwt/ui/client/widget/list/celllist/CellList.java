@@ -127,6 +127,9 @@ public class CellList<T> extends Widget implements HasCellSelectedHandler {
 
     @Override
     public void onTouchMove(TouchMoveEvent event) {
+    	if(!started){
+    		return;
+    	}
       Touch touch = event.getTouches().get(0);
       int deltaX = touch.getPageX() - x;
       int deltaY = touch.getPageY() - y;
